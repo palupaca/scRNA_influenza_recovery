@@ -1,6 +1,8 @@
 ---
 title: "Preprocessing mouse influenza recovery scRNAseq samples"
-output: html_notebook
+output:
+  github_document:
+    toc: true
 ---
 
 
