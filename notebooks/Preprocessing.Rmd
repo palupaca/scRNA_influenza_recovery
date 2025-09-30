@@ -1,0 +1,114 @@
+---
+title: "Preprocessing mouse influenza recovery scRNAseq samples"
+output: html_notebook
+---
+
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(hdf5r)
+library(SeuratDisk)
+library(Seurat)
+library(devtools)
+library(data.table)
+#library(DoubletFinder)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+```
+
+
+```{r}
+#check meta data
+meta = as.data.frame(fread("/scratch/qlp9135/scRNA_influenza_recovery/data_meta/GSE262927_CellMetaData.csv"))
+head(meta)
+```
+
+```{r}
+#add unique barcode column for merging
+meta$cell = str_c(meta$orig.ident, meta$cb, sep = "_")
+head
+```
+
+```{r}
+#check GEO sample info
+sample.info = as.data.frame(fread("/scratch/qlp9135/scRNA_influenza_recovery/data_meta/SampleInfo.csv"))
+sample.info = na.omit(sample.info)
+
+sample.fil = sample.info %>%
+  filter(Genotype == "Ki67Cre") %>%
+  mutate(Time_Value = as.numeric(str_extract(Sacrifice_Timepoint, "\\d+"))) %>%
+  mutate(filename = paste0(ID, ".h5"))
+
+#filter ssample for first round of analysis 
+sample.firstround = sample.fil %>%
+  filter(Time_Value <42)
+
+library(data.table)
+
+sample.firstround = as.data.frame(fread("/scratch/qlp9135/scRNA_influenza_recovery/data_meta/sample_firstround.csv"))
+
+
+head(sample.firstround)
+```
+
+```{r}
+#load first round samples
+objs <- lapply(1:nrow(sample.firstround), function(i) {
+  m <- sample.firstround[i,]
+  counts <- Read10X_h5(file.path("/scratch/qlp9135/scRNA_influenza_recovery/data_raw/GSE262927_RAW", m$filename))
+  seurat_obj <- CreateSeuratObject(counts, project = "InfluenzaRecovery",
+                                   min.cells = 3, min.features = 200)
+  seurat_obj$Genotype  <- m$Genotype 
+  seurat_obj$Condition <- m$Condition
+  seurat_obj$Tamoxifen_Timepoint <- m$Tamoxifen_Timepoint
+  seurat_obj$Sacrifice_Timepoint <- m$Sacrifice_Timepoint
+  seurat_obj
+})
+
+# Merge into one
+merged <- merge(objs[[1]], y = objs[-1], add.cell.ids = sample.firstround$batch
+                )
+```
+```{r}
+#merge meta data (clsuter assignment) provided by the authors
+seurat_cells <- tibble(cell = colnames(merged)) 
+
+meta_join <- seurat_cells %>%
+  left_join(meta, by = c("cell"))
+
+
+keep <- meta_join %>% 
+  filter(!is.na(phase)) %>%
+  select(-2)  %>%
+ pull(cell) %>%
+  unique()
+
+length(keep)
+length(colnames(merged)) 
+
+#Subset the Seurat object to matched cells only
+merged_filtered <- subset(merged, cells = keep)
+
+merged_filtered #43773 total cells
+```
+```{r}
+#add meta data back to seurat object
+meta_fill <- meta_join %>% 
+  filter(!is.na(phase)) %>%
+  select(-2) %>%
+  tibble::column_to_rownames("cell")
+
+merged_filtered <- AddMetaData(merged_filtered, meta_fill)
+
+head(merged_filtered@meta.data)
+```
+
+
+
+
+```{r}
+# save filtered merged data 
+save(merged_filtered, file="/scratch/qlp9135/scRNA_influenza_recovery/data_processed/merged_filtered.RData")
+```
+

@@ -1,0 +1,10 @@
+.Rhistory
+.RData
+.Rproj.user/
+.html
+data_raw/
+data_processed/
+data_meta/
+scripts/
+renv/
+
